@@ -520,9 +520,9 @@ window.HomeFlex = (() => {
         "hf-code",
       ),
       el("h3", e.needsDetails || e.cardType === "Album/Collection" ? e.title : name(e.canonicalName).title),
-      el("p", e.series || "Series not set"),
+      el("p", e.needsDetails ? "Title wasn't included. Add details or share from the source app." : e.series || "Series optional"),
       el("p", e.synopsis || "No synopsis added.", "hf-synopsis"),
-      el("span", e.cardType === "Album/Collection" ? "View collection ↗" : "View Episode ↗", "hf-link-label"),
+      el("span", e.needsDetails ? "Edit details ↗" : e.cardType === "Album/Collection" ? "View collection ↗" : "View episode details ↗", "hf-link-label"),
     );
     b.setAttribute("aria-label", "View " + (e.canonicalName || e.title));
     b.append(picture, info);
@@ -683,7 +683,7 @@ window.HomeFlex = (() => {
         ui.demo
           ? "Demo album action"
           : navigator.onLine
-            ? "Open Google Photos ↗"
+            ? "Open in Google Photos ↗"
             : "Internet needed to open album",
         () => openAlbum(e),
         "primary",
@@ -694,7 +694,7 @@ window.HomeFlex = (() => {
       ),
       el(
         "p",
-        "Opens a new tab. Google may ask you to sign in or request sharing access. HomeFlex cannot bypass access controls, download media or confirm a successful view.",
+        "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. Save details if needed, then set Card status to Published to enable the button. Google may require sign-in or sharing access.",
         "small",
       ),
     );
@@ -708,7 +708,7 @@ window.HomeFlex = (() => {
           ? [
               el(
                 "p",
-                "Choose Album/Collection for an album without episode numbering, or Episode for a canonical S01E01 card.",
+                "This pasted link did not include a title. Add the title below or share from Google Photos/browser if it supplies one. Choose Album/Collection if there is no episode code.",
                 "small",
               ),
             ]
