@@ -1,0 +1,18 @@
+'use strict';
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),crypto=require('crypto');
+const c={window:{addEventListener(){}},crypto,URL};vm.createContext(c);vm.runInContext(fs.readFileSync(__dirname+'/homeflex.js','utf8'),c);const H=c.window.HomeFlex;
+const item='https://photos.google.com/share/TEST_ALBUM/photo/TEST_EPISODE?key=TEST_KEY',album='https://photos.google.com/share/TEST_ALBUM?key=TEST_KEY';
+const line='Test | S01E01 - One | '+item;let n=0;function test(fn){fn();n++;}
+const p=H.batch(line,[]);test(()=>assert.equal(p.errors.length,0));test(()=>assert.equal(p.cards.length,1));test(()=>assert.equal(p.cards[0].itemUrl,item));test(()=>assert.equal(p.cards[0].albumUrl,null));test(()=>assert.equal(p.cards[0].status,'Draft'));test(()=>assert.match(p.warnings.join(' '),/fallback missing/));
+test(()=>assert.equal(H.readBackup({format:'homeflex-fusion',version:1,exportedAt:new Date().toISOString(),episodes:p.cards})[0].albumUrl,null));
+test(()=>assert.equal(H.batch(line,p.cards).errors.length,1));test(()=>assert.equal(H.batch(line+'\n'+line,[]).errors.length,1));
+test(()=>assert.equal(H.batch(line+' | '+album,[]).cards[0].albumUrl,album));
+test(()=>assert.equal(H.batch(line+' | https://photos.google.com/share/OTHER',[]).errors.length,1));
+test(()=>assert.equal(H.batch('Test | S01E02 - Two | '+album,[]).cards[0].albumUrl,album));
+test(()=>assert.equal(H.batch('https://photos.app.goo.gl/TEST',[]).cards[0].needsDetails,true));
+test(()=>assert.match(H.batch('Test | S01E01 - One | ',[]).errors[0],/No https URL found/));
+test(()=>assert.match(H.batch('Test | S01E01 - One',[]).errors[0],/No https URL found/));
+for(const u of ['https://photos.google.com.evil.invalid/share/A/photo/B','https://user@photos.google.com/share/A/photo/B','http://photos.google.com/share/A/photo/B','https://photos.google.com/share/A/photo/B#fragment','javascript:alert(1)'])test(()=>assert.equal(H.batch('Test | S01E01 - One | '+u,[]).cards.length,0));
+test(()=>assert.throws(()=>H.validate([{...p.cards[0],albumUrl:null,itemUrl:undefined}])));test(()=>assert.throws(()=>H.validate([{...p.cards[0],albumUrl:'https://photos.google.com/share/OTHER'}])));
+test(()=>assert.equal(H.merge(p.cards,p.cards).skipped,1));
+console.log(n+' batch item-link assertions passed');
