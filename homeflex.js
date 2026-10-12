@@ -27,7 +27,9 @@ window.HomeFlex = (() => {
   const art = "./homeflex-art.svg";
   const pattern = /^S(\d{2})E(\d{2}) - (\S(?:.*\S)?)$/;
   const idKey = (e) =>
-    e.series.trim().toLowerCase() + "|" + e.canonicalName.slice(0, 6);
+    e.needsDetails
+      ? "pending|" + e.id
+      : e.series.trim().toLowerCase() + "|" + e.canonicalName.slice(0, 6);
   const fail = (msg) => {
     throw new Error(msg);
   };
@@ -91,6 +93,8 @@ window.HomeFlex = (() => {
               "createdAt",
               "lastOpened",
               "thumbnail",
+              "needsDetails",
+              "title",
             ].includes(k),
         )
       )
@@ -101,10 +105,17 @@ window.HomeFlex = (() => {
           e.id,
         ) ||
         typeof e.series !== "string" ||
-        !e.series.trim() ||
+        (!e.needsDetails && !e.series.trim()) ||
         e.series.length > 80 ||
         /[\u0000-\u001f]/.test(e.series) ||
-        !name(e.canonicalName) ||
+        (e.needsDetails
+          ? e.canonicalName !== "" ||
+            e.series !== "" ||
+            e.status !== "Draft" ||
+            typeof e.title !== "string" ||
+            !/^Untitled album [1-9]\d*$/.test(e.title)
+          : !name(e.canonicalName)) ||
+        (e.needsDetails !== undefined && typeof e.needsDetails !== "boolean") ||
         typeof e.originalLine !== "string" ||
         e.originalLine.length > 2500 ||
         !albumUrl(e.albumUrl) ||
@@ -176,9 +187,31 @@ window.HomeFlex = (() => {
       };
     for (const [i, line] of lines.entries()) {
       const p = line.split("|").map((x) => x.trim());
+      if (p.length === 1 && albumUrl(p[0])) {
+        const e = {
+          id: crypto.randomUUID(),
+          series: "",
+          canonicalName: "",
+          title: `Untitled album ${current.filter((x) => x.needsDetails).length + cards.filter((x) => x.needsDetails).length + 1}`,
+          needsDetails: true,
+          originalLine: line,
+          albumUrl: albumUrl(p[0]),
+          synopsis: "",
+          status: "Draft",
+          createdAt: new Date().toISOString(),
+          lastOpened: null,
+        };
+        try {
+          validate([...current, ...cards, e]);
+          cards.push(e);
+        } catch (err) {
+          errors.push(`Line ${i + 1}: ${err.message}`);
+        }
+        continue;
+      }
       if (p.length !== 3) {
         errors.push(
-          `Line ${i + 1}: use Series | S01E01 - Title | Google Photos URL. Names and numbering cannot be guessed from links.`,
+          `Line ${i + 1}: paste one Google Photos link per line, or Series | S01E01 - Title | Google Photos URL.`,
         );
         continue;
       }
@@ -362,7 +395,10 @@ window.HomeFlex = (() => {
       version++;
       ui.message = `${rows.length} cards saved locally. Export a JSON backup before clearing site data.`;
       try {
-        localStorage.setItem("homeflex.fusion-test.changed.v1", crypto.randomUUID());
+        localStorage.setItem(
+          "homeflex.fusion-test.changed.v1",
+          crypto.randomUUID(),
+        );
       } catch {}
       return true;
     } catch (err) {
@@ -464,18 +500,29 @@ window.HomeFlex = (() => {
       img = el("img");
     img.src = e.thumbnail || art;
     img.alt = e.thumbnail
-      ? "Local thumbnail for " + e.canonicalName
+      ? "Local thumbnail for " + (e.canonicalName || e.title)
       : "Illustrative placeholder, not the album contents";
-    picture.append(img, el("span", e.status, "hf-badge"));
+    picture.append(
+      img,
+      el(
+        "span",
+        e.needsDetails ? "Draft · Needs details" : e.status,
+        "hf-badge",
+      ),
+    );
     const info = el("div", null, "hf-info");
     info.append(
-      el("p", e.canonicalName.slice(0, 6), "hf-code"),
-      el("h3", name(e.canonicalName).title),
-      el("p", e.series),
+      el(
+        "p",
+        e.needsDetails ? "Needs details" : e.canonicalName.slice(0, 6),
+        "hf-code",
+      ),
+      el("h3", e.needsDetails ? e.title : name(e.canonicalName).title),
+      el("p", e.series || "Series not set"),
       el("p", e.synopsis || "No synopsis added.", "hf-synopsis"),
       el("span", "View Episode ↗", "hf-link-label"),
     );
-    b.setAttribute("aria-label", "View " + e.canonicalName);
+    b.setAttribute("aria-label", "View " + (e.canonicalName || e.title));
     b.append(picture, info);
     article.append(b);
     return article;
@@ -528,7 +575,7 @@ window.HomeFlex = (() => {
         .filter(
           (e) =>
             (ui.series === "All" || e.series === ui.series) &&
-            `${e.canonicalName} ${e.series} ${e.synopsis}`
+            `${e.canonicalName} ${e.title || ""} ${e.series} ${e.synopsis}`
               .toLowerCase()
               .includes(ui.query.toLowerCase()),
         )
@@ -557,7 +604,7 @@ window.HomeFlex = (() => {
             "p",
             ui.page === "recent"
               ? "Opening an album records a link-open action here, not confirmed Google viewing."
-              : "Paste a batch with series, canonical episode name and URL. Nothing is guessed.",
+              : "Paste album links to create Draft cards, then add title, series and episode code later.",
           ),
           action(
             "Batch import",
@@ -582,7 +629,9 @@ window.HomeFlex = (() => {
         "Series",
         [
           ["All", "All"],
-          ...[...new Set(current.map((e) => e.series))].map((s) => [s, s]),
+          ...[...new Set(current.map((e) => e.series).filter(Boolean))].map(
+            (s) => [s, s],
+          ),
         ],
         ui.series,
         (v) => {
@@ -621,8 +670,12 @@ window.HomeFlex = (() => {
     img.alt = e.thumbnail ? "Local thumbnail" : "Illustrative placeholder";
     const info = el("div");
     info.append(
-      el("p", e.series + " · " + e.status, "hf-eyebrow"),
-      el("h1", e.canonicalName),
+      el(
+        "p",
+        e.needsDetails ? "Draft · Needs details" : e.series + " · " + e.status,
+        "hf-eyebrow",
+      ),
+      el("h1", e.canonicalName || e.title),
       el("p", e.synopsis || "No synopsis added."),
       action(
         ui.demo
@@ -632,7 +685,10 @@ window.HomeFlex = (() => {
             : "Internet needed to open album",
         () => openAlbum(e),
         "primary",
-        busy || e.status !== "Published" || (!navigator.onLine && !ui.demo),
+        busy ||
+          e.needsDetails ||
+          e.status !== "Published" ||
+          (!navigator.onLine && !ui.demo),
       ),
       el(
         "p",
@@ -646,20 +702,85 @@ window.HomeFlex = (() => {
       const edit = el("section", null, "hf-editor");
       edit.append(
         el("h2", "Local card settings"),
-        choices(
-          "Card status",
-          [
-            ["Draft", "Draft"],
-            ["Published", "Published"],
-            ["Unavailable", "Unavailable"],
-          ],
-          e.status,
-          (v) =>
-            save(rows.map((x) => (x.id === e.id ? { ...x, status: v } : x))),
-        ),
+        ...(e.needsDetails
+          ? [
+              el(
+                "p",
+                "Fill the title, series and S01E01 code below before enabling the album link.",
+                "small",
+              ),
+            ]
+          : [
+              choices(
+                "Card status",
+                [
+                  ["Draft", "Draft"],
+                  ["Published", "Published"],
+                  ["Unavailable", "Unavailable"],
+                ],
+                e.status,
+                (v) =>
+                  save(
+                    rows.map((x) => (x.id === e.id ? { ...x, status: v } : x)),
+                  ),
+              ),
+            ]),
         el(
           "p",
           "Published enables this browser’s link button. It does not share the card or create administrator/viewer security.",
+          "small",
+        ),
+      );
+      const titleInput = input(
+          e.needsDetails ? "" : name(e.canonicalName).title,
+          "Album title",
+        ),
+        seriesInput = input(e.series, "Album series"),
+        codeInput = input(
+          e.needsDetails ? "" : e.canonicalName.slice(0, 6),
+          "Episode code",
+        );
+      titleInput.maxLength = 120;
+      seriesInput.maxLength = 80;
+      codeInput.maxLength = 6;
+      codeInput.placeholder = "S01E01";
+      const notes = el("textarea");
+      notes.value = e.synopsis;
+      notes.rows = 3;
+      notes.maxLength = 500;
+      notes.setAttribute("aria-label", "Album notes");
+      edit.append(
+        label("Title", titleInput),
+        label("Series", seriesInput),
+        label("Episode code", codeInput),
+        label("Notes", notes),
+        action(
+          "Save card details",
+          async () => {
+            const canonicalName =
+              codeInput.value.trim() + " - " + titleInput.value.trim();
+            if (!name(canonicalName) || !seriesInput.value.trim()) {
+              ui.error =
+                "Enter a series, a title (up to 120 characters) and an exact S01E01 code, season/episode 01-99. Nothing changed.";
+              refresh();
+              return;
+            }
+            const next = {
+              ...e,
+              series: seriesInput.value.trim(),
+              canonicalName,
+              synopsis: notes.value,
+            };
+            delete next.needsDetails;
+            delete next.title;
+            await save(rows.map((x) => (x.id === e.id ? next : x)));
+          },
+          "primary",
+          busy,
+        ),
+        el(
+          "p",
+          "Saving details keeps this card Draft. Set its status to Published to enable the Google Photos button. No album title or numbering is fetched or guessed.",
           "small",
         ),
       );
@@ -751,8 +872,13 @@ window.HomeFlex = (() => {
     for (const e of cards) {
       const r = el("div");
       r.append(
-        el("strong", e.canonicalName),
-        el("span", e.series + " · " + e.status),
+        el("strong", e.canonicalName || e.title),
+        el(
+          "span",
+          e.needsDetails
+            ? "Draft · Needs details"
+            : e.series + " · " + e.status,
+        ),
       );
       list.append(r);
     }
@@ -763,11 +889,18 @@ window.HomeFlex = (() => {
     section.append(
       el("p", "BATCH IMPORT · LOCAL ONLY", "hf-eyebrow"),
       el("h1", "Paste. Preview. Review."),
-      el("p", "One line per episode. Up to 200 lines per batch."),
-      el("code", "Series | S01E01 - Title | Google Photos URL", "hf-example"),
       el(
         "p",
-        "Accepted: HTTPS photos.app.goo.gl short links or photos.google.com album/share links. Format checks do not verify sharing or availability. A link alone cannot supply the series, title or numbering.",
+        "Paste one Google Photos album link per line. Up to 200 lines per batch.",
+      ),
+      el(
+        "code",
+        "Link only, or Series | S01E01 - Title | Google Photos URL",
+        "hf-example",
+      ),
+      el(
+        "p",
+        "Accepted: HTTPS photos.app.goo.gl short links or photos.google.com album/share links. Format checks do not verify sharing or availability. Link-only cards become Draft with an Untitled album label and Needs details. Add the real title, series and code in the card later. Nothing is guessed.",
         "small",
       ),
     );
