@@ -69,3 +69,7 @@ WebVM frontend is Apache-2.0, but CheerpX has separate terms. The hosted engine 
 ## HomeFlex native app (review)
 
 DRAFT / REVIEW REQUIRED. HomeFlex is a local album-link catalogue, separate from the Fusion workspace. It uses Fusion's launcher, window manager, theme, installation and offline shell. See HOMEFLEX-REVIEW.md for format, backups, tests and limits. The library starts blank; Explore demo is synthetic and never saved. Fusion workspace JSON export/import/reset excludes HomeFlex data. Export HomeFlex from its own Backup & info panel. Google Photos albums require internet and normal Google access.
+
+## Link-only imports (test update)
+
+Paste one Google Photos URL per line to preview Draft cards with neutral Untitled album labels and Needs details badges. No titles, series or episode codes are guessed or fetched. Open a card to add title, series, exact S01E01 code and notes, then save details. The card remains Draft until Published is selected locally. Full Series | S01E01 - Title | URL lines still work. Duplicate URLs remain rejected. Ten browser test groups plus 18 validator assertions passed with synthetic links. No real album link is in the repository.
