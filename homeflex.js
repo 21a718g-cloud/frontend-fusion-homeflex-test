@@ -27,7 +27,7 @@ window.HomeFlex = (() => {
   const art = "./homeflex-art.svg";
   const pattern = /^S(\d{2})E(\d{2}) - (\S(?:.*\S)?)$/;
   const idKey = (e) =>
-    e.needsDetails
+    (e.needsDetails || e.cardType === "Album/Collection")
       ? "pending|" + e.id
       : e.series.trim().toLowerCase() + "|" + e.canonicalName.slice(0, 6);
   const fail = (msg) => {
@@ -95,6 +95,7 @@ window.HomeFlex = (() => {
               "thumbnail",
               "needsDetails",
               "title",
+              "cardType",
             ].includes(k),
         )
       )
@@ -105,7 +106,7 @@ window.HomeFlex = (() => {
           e.id,
         ) ||
         typeof e.series !== "string" ||
-        (!e.needsDetails && !e.series.trim()) ||
+        (!e.needsDetails && e.cardType !== "Album/Collection" && !e.series.trim()) ||
         e.series.length > 80 ||
         /[\u0000-\u001f]/.test(e.series) ||
         (e.needsDetails
@@ -114,7 +115,8 @@ window.HomeFlex = (() => {
             e.status !== "Draft" ||
             typeof e.title !== "string" ||
             !/^Untitled album [1-9]\d*$/.test(e.title)
-          : !name(e.canonicalName)) ||
+          : e.cardType === "Album/Collection" ? (typeof e.title !== "string" || !e.title.trim() || e.title.length > 120 || /[\u0000-\u001f\u007f]/.test(e.title) || (e.canonicalName !== "" && !name(e.canonicalName))) : !name(e.canonicalName)) ||
+        (e.cardType !== undefined && !["Episode", "Album/Collection"].includes(e.cardType)) ||
         (e.needsDetails !== undefined && typeof e.needsDetails !== "boolean") ||
         typeof e.originalLine !== "string" ||
         e.originalLine.length > 2500 ||
@@ -136,13 +138,13 @@ window.HomeFlex = (() => {
         );
       const key = idKey(e),
         url = albumUrl(e.albumUrl);
-      if (ids.has(e.id) || keys.has(key) || urls.has(url))
+      if (ids.has(e.id) || keys.has(key) || urls.has(url + "|" + (e.cardType === "Album/Collection" || e.needsDetails ? "album" : idKey(e))))
         fail(
           "Backup contains duplicate IDs, episode identities or album URLs.",
         );
       ids.add(e.id);
       keys.add(key);
-      urls.add(url);
+      urls.add(url + "|" + (e.cardType === "Album/Collection" || e.needsDetails ? "album" : idKey(e)));
       return { ...e, albumUrl: url };
     });
   }
@@ -270,7 +272,7 @@ window.HomeFlex = (() => {
       if (
         [...current, ...additions].some(
           (x) =>
-            x.id === e.id || idKey(x) === idKey(e) || x.albumUrl === e.albumUrl,
+            x.id === e.id || idKey(x) === idKey(e) || (x.albumUrl === e.albumUrl && (x.needsDetails || x.cardType === "Album/Collection") && (e.needsDetails || e.cardType === "Album/Collection")),
         )
       ) {
         skipped++;
@@ -514,13 +516,13 @@ window.HomeFlex = (() => {
     info.append(
       el(
         "p",
-        e.needsDetails ? "Needs details" : e.canonicalName.slice(0, 6),
+        e.needsDetails ? "Needs details" : e.cardType === "Album/Collection" ? "Album/Collection" : e.canonicalName.slice(0, 6),
         "hf-code",
       ),
-      el("h3", e.needsDetails ? e.title : name(e.canonicalName).title),
+      el("h3", e.needsDetails || e.cardType === "Album/Collection" ? e.title : name(e.canonicalName).title),
       el("p", e.series || "Series not set"),
       el("p", e.synopsis || "No synopsis added.", "hf-synopsis"),
-      el("span", "View Episode ↗", "hf-link-label"),
+      el("span", e.cardType === "Album/Collection" ? "View collection ↗" : "View Episode ↗", "hf-link-label"),
     );
     b.setAttribute("aria-label", "View " + (e.canonicalName || e.title));
     b.append(picture, info);
@@ -675,7 +677,7 @@ window.HomeFlex = (() => {
         e.needsDetails ? "Draft · Needs details" : e.series + " · " + e.status,
         "hf-eyebrow",
       ),
-      el("h1", e.canonicalName || e.title),
+      el("h1", e.cardType === "Album/Collection" ? e.title : e.canonicalName || e.title),
       el("p", e.synopsis || "No synopsis added."),
       action(
         ui.demo
@@ -706,7 +708,7 @@ window.HomeFlex = (() => {
           ? [
               el(
                 "p",
-                "Fill the title, series and S01E01 code below before enabling the album link.",
+                "Choose Album/Collection for an album without episode numbering, or Episode for a canonical S01E01 card.",
                 "small",
               ),
             ]
@@ -732,7 +734,7 @@ window.HomeFlex = (() => {
         ),
       );
       const titleInput = input(
-          e.needsDetails ? "" : name(e.canonicalName).title,
+          e.needsDetails ? "" : e.cardType === "Album/Collection" ? e.title : name(e.canonicalName).title,
           "Album title",
         ),
         seriesInput = input(e.series, "Album series"),
@@ -744,12 +746,15 @@ window.HomeFlex = (() => {
       seriesInput.maxLength = 80;
       codeInput.maxLength = 6;
       codeInput.placeholder = "S01E01";
+      let cardType = e.cardType || "Episode";
+      const typeChoice = choices("Card type", [["Episode", "Episode"], ["Album/Collection", "Album/Collection"]], cardType, v => {cardType=v;});
       const notes = el("textarea");
       notes.value = e.synopsis;
       notes.rows = 3;
       notes.maxLength = 500;
       notes.setAttribute("aria-label", "Album notes");
       edit.append(
+        typeChoice,
         label("Title", titleInput),
         label("Series", seriesInput),
         label("Episode code", codeInput),
@@ -759,20 +764,22 @@ window.HomeFlex = (() => {
           async () => {
             const canonicalName =
               codeInput.value.trim() + " - " + titleInput.value.trim();
-            if (!name(canonicalName) || !seriesInput.value.trim()) {
+            if (cardType === "Episode" && (!name(canonicalName) || !seriesInput.value.trim()) || cardType === "Album/Collection" && (!titleInput.value.trim() || (codeInput.value.trim() && !name(canonicalName)))) {
               ui.error =
-                "Enter a series, a title (up to 120 characters) and an exact S01E01 code, season/episode 01-99. Nothing changed.";
+                "Episode needs a series, title and exact S01E01 code. Album/Collection needs a title; series/code are optional, but any code must be exact S01E01. Nothing changed.";
               refresh();
               return;
             }
             const next = {
               ...e,
               series: seriesInput.value.trim(),
-              canonicalName,
+              canonicalName: cardType === "Album/Collection" && !codeInput.value.trim() ? "" : canonicalName,
+              cardType,
+              status: "Draft",
               synopsis: notes.value,
             };
             delete next.needsDetails;
-            delete next.title;
+            if(cardType === "Album/Collection") next.title = titleInput.value.trim(); else delete next.title;
             await save(rows.map((x) => (x.id === e.id ? next : x)));
           },
           "primary",
@@ -780,7 +787,7 @@ window.HomeFlex = (() => {
         ),
         el(
           "p",
-          "Saving details keeps this card Draft. Set its status to Published to enable the Google Photos button. No album title or numbering is fetched or guessed.",
+          "Saving details returns this card to Draft. Album/Collection does not require episode numbering. Captures use only supplied titles and URLs, never fetch album data.",
           "small",
         ),
       );
@@ -1242,6 +1249,37 @@ window.HomeFlex = (() => {
     body.append(feedback);
     host.append(body);
   }
+  async function receiveCapture(payload) {
+    await load();
+    if(!loaded) throw new Error("Local storage unavailable. Nothing captured.");
+    if(!payload || typeof payload.title !== "string" || typeof payload.url !== "string" || payload.title.length > 500) throw new Error("Invalid capture payload.");
+    const url=albumUrl(payload.url);
+    if(!url) throw new Error("Capture needs a valid Google Photos album/share URL.");
+    if(Array.isArray(payload.labels)){
+      if(payload.labels.length>100)throw new Error("Capture has too many labels.");
+      const lines=[];
+      for(const label of payload.labels){
+        if(typeof label!=="string"||label.length>200)continue;
+        const clean=label.trim().replace(/\.(mp4|mkv|avi|mov)$/i,"");
+        const full=/^(.+?) \| (S\d{2}E\d{2} - .+)$/.exec(clean);
+        const filename=/^(.+?) (S\d{2}E\d{2})$/.exec(clean);
+        if(full && name(full[2])) lines.push(full[1]+" | "+full[2]+" | "+url);
+        else if(filename && name(filename[2]+" - "+clean)) lines.push(filename[1]+" | "+filename[2]+" - "+clean+" | "+url);
+      }
+      if(lines.length){ui.demo=false;ui.page="import";ui.selected=null;ui.text=[...new Set(lines)].join("\n");ui.preview={...batch(ui.text,rows),revision};ui.message="Visible episode labels only, possibly partial. Original labels kept as titles, no subtitles guessed. Review before applying Drafts.";refresh();return;}
+    }
+    const existing=rows.find(x=>x.albumUrl===url && (x.needsDetails || x.cardType==="Album/Collection"));
+    ui.demo=false; ui.page="browse";
+    if(existing){ui.selected=existing.id;ui.message="Album already in this library. Existing card and status kept.";refresh();return;}
+    const title=payload.title.replace(/ - Google Photos$/, "").trim();
+    if(title.length>120 || /[\u0000-\u001f\u007f]/.test(title)) throw new Error("Captured title is too long or invalid. Nothing changed.");
+    const card={id:crypto.randomUUID(),series:"",canonicalName:"",originalLine:url,albumUrl:url,synopsis:"",status:"Draft",createdAt:new Date().toISOString(),lastOpened:null,
+      ...(title ? {cardType:"Album/Collection",title} : {title:`Untitled album ${rows.filter(x=>x.needsDetails).length+1}`,needsDetails:true})};
+    validate([...rows,card]);
+    if(!await save([...rows,card])) throw new Error(ui.error || "Capture could not be saved.");
+    ui.selected=card.id;ui.message="Captured locally as Draft. No media downloaded or published.";refresh();
+  }
+  window.addEventListener("homeflex-capture", e => receiveCapture(e.detail).catch(err=>{ui.error=err.message;refresh();}));
   window.addEventListener("online", refresh);
   window.addEventListener("offline", refresh);
   window.addEventListener("storage", async (e) => {
@@ -1260,5 +1298,5 @@ window.HomeFlex = (() => {
       refresh();
     }
   });
-  return { render, albumUrl, name, validate, batch, gaps, readBackup, merge };
+  return { render, albumUrl, name, validate, batch, gaps, readBackup, merge, receiveCapture };
 })();
