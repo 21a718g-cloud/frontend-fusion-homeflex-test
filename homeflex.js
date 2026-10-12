@@ -538,6 +538,23 @@ window.HomeFlex = (() => {
     article.append(b);
     return article;
   }
+  function bulkStatus(items, publish) {
+    const candidates = items.filter(e => e.status === (publish ? "Draft" : "Published"));
+    const eligible = candidates.filter(e => !e.needsDetails && (itemUrl(e.itemUrl) || albumUrl(e.albumUrl)));
+    const ids = new Set(eligible.map(e => e.id));
+    return {count: eligible.length, skipped: candidates.length - eligible.length,
+      cards: items.map(e => ids.has(e.id) ? {...e, status: publish ? "Published" : "Draft"} : e)};
+  }
+  function bulkStatusAction(publish) {
+    const preview = bulkStatus(rows, publish), reviewedRevision = revision;
+    showConfirmDialog(publish ? "Publish all drafts?" : "Unpublish all?",
+      `${preview.count} cards will become ${publish ? "Published" : "Draft"}. ${preview.skipped} skipped (Needs details or missing valid URL). This affects the whole library, not just the current filters. Nothing is sent or opened. ${publish ? "Undo with Unpublish all or per-card status." : "Existing Published cards will also become Draft."}`,
+      async () => {
+        if (reviewedRevision !== revision) {ui.error = "Library changed. Review the count again."; refresh(); return false;}
+        if (await save(preview.cards)) {ui.message = `${preview.count} cards ${publish ? "published" : "unpublished"} locally. ${preview.skipped} skipped. Nothing sent or opened.`; refresh(); return true;}
+        return false;
+      }, publish ? `Publish ${preview.count} drafts` : `Unpublish ${preview.count} cards`);
+  }
   function catalogue(body) {
     const current = ui.demo ? samples : rows,
       hero = el("section", null, "hf-hero"),
@@ -569,6 +586,11 @@ window.HomeFlex = (() => {
         refresh();
       }),
     );
+    if (!ui.demo && ui.page === "browse") {
+      const drafts = bulkStatus(rows, true), published = bulkStatus(rows, false);
+      buttons.append(action("Publish all drafts", () => bulkStatusAction(true), "", !loaded || busy || !drafts.count),
+        action("Unpublish all", () => bulkStatusAction(false), "", !loaded || busy || !published.count));
+    }
     words.append(buttons);
     hero.append(img, words);
     body.append(hero);
@@ -1310,5 +1332,5 @@ window.HomeFlex = (() => {
       refresh();
     }
   });
-  return { render, albumUrl, name, validate, batch, gaps, readBackup, merge, receiveCapture, itemUrl };
+  return { render, albumUrl, name, validate, batch, gaps, readBackup, merge, receiveCapture, itemUrl, bulkStatus };
 })();
