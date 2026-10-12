@@ -123,8 +123,8 @@ window.HomeFlex = (() => {
         (e.needsDetails !== undefined && typeof e.needsDetails !== "boolean") ||
         typeof e.originalLine !== "string" ||
         e.originalLine.length > 2500 ||
-        !albumUrl(e.albumUrl) ||
-        (e.itemUrl !== undefined && (!itemUrl(e.itemUrl) || new URL(itemParent(e.itemUrl)).pathname !== new URL(e.albumUrl).pathname)) ||
+        (!albumUrl(e.albumUrl) && !(e.albumUrl === null && !e.needsDetails && e.cardType !== "Album/Collection" && itemUrl(e.itemUrl))) ||
+        (e.itemUrl !== undefined && (!itemUrl(e.itemUrl) || (e.albumUrl !== null && new URL(itemParent(e.itemUrl)).pathname !== new URL(e.albumUrl).pathname))) ||
         typeof e.synopsis !== "string" ||
         e.synopsis.length > 500 ||
         !["Draft", "Published", "Unavailable"].includes(e.status) ||
@@ -215,23 +215,27 @@ window.HomeFlex = (() => {
         }
         continue;
       }
-      if (p.length !== 3) {
+      if (p.length !== 3 && p.length !== 4) {
         errors.push(
-          `Line ${i + 1}: paste one Google Photos link per line, or Series | S01E01 - Title | Google Photos URL.`,
+          `Line ${i + 1}: ${/https:\/\//i.test(line) ? "Expected 3 fields separated by | (optional 4th field: album fallback)." : "No https URL found on this line. Copy the plain-text/code-block version so the URL is included."} Use Series | S01E01 - Title | Google Photos URL.`,
         );
         continue;
       }
-      const [series, canonicalName, url] = p;
+      const [series, canonicalName, url, fallback] = p;
       if (!name(canonicalName)) {
         errors.push(
           `Line ${i + 1}: exact S01E01 - Title required; season/episode 01-99 and title up to 120 characters.`,
         );
         continue;
       }
-      if (!albumUrl(url)) {
-        errors.push(
-          `Line ${i + 1}: HTTPS Google Photos album/share link required.`,
-        );
+      const capturedItem = itemUrl(url);
+      const album = capturedItem ? (fallback ? albumUrl(fallback) : null) : albumUrl(url);
+      if (!capturedItem && !album) {
+        errors.push(`Line ${i + 1}: ${/^https:\/\//i.test(url) ? "URL field is not a supported HTTPS Google Photos album or /share/.../photo/... episode link." : "No https URL found in the URL field. Copy the plain-text/code-block version so the URL is included."}`);
+        continue;
+      }
+      if (fallback !== undefined && (!capturedItem || !album || new URL(itemParent(capturedItem)).pathname !== new URL(album).pathname)) {
+        errors.push(`Line ${i + 1}: optional album fallback must be a matching expanded Google Photos share URL.`);
         continue;
       }
       const e = {
@@ -239,7 +243,8 @@ window.HomeFlex = (() => {
         series,
         canonicalName,
         originalLine: line,
-        albumUrl: albumUrl(url),
+        albumUrl: album,
+        ...(capturedItem ? {itemUrl: capturedItem} : {}),
         synopsis: "",
         status: "Draft",
         createdAt: new Date().toISOString(),
@@ -252,7 +257,7 @@ window.HomeFlex = (() => {
         errors.push(`Line ${i + 1}: ${err.message}`);
       }
     }
-    return { cards, errors, warnings: gaps([...current, ...cards]) };
+    return { cards, errors, warnings: [...gaps([...current, ...cards]), ...(cards.some(e => e.itemUrl && !e.albumUrl) ? ["Episode links accepted. Album fallback missing for some cards; no album URL was guessed."] : [])] };
   }
   function readBackup(raw) {
     if (
@@ -484,7 +489,7 @@ window.HomeFlex = (() => {
       refresh();
       return;
     }
-    if (!navigator.onLine || e.status !== "Published" || !albumUrl(e.albumUrl))
+    if (!navigator.onLine || e.status !== "Published" || !(itemUrl(e.itemUrl) || albumUrl(e.albumUrl)))
       return;
     window.open(itemUrl(e.itemUrl) || e.albumUrl, "_blank", "noopener,noreferrer");
     await save(
@@ -698,11 +703,11 @@ window.HomeFlex = (() => {
       ),
       el(
         "p",
-        (e.itemUrl ? "Opens the captured episode in Google Photos. Album link is available below. " : "Opens the album in Google Photos. ") + "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. Save details if needed, then set Card status to Published to enable the button. Google may require sign-in or sharing access.",
+        (e.itemUrl ? (e.albumUrl ? "Opens the captured episode in Google Photos. Album fallback available. " : "Opens the captured episode in Google Photos. Album fallback missing. ") : "Opens the album in Google Photos. ") + "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. Save details if needed, then set Card status to Published to enable the button. Google may require sign-in or sharing access.",
         "small",
       ),
     );
-    if(e.itemUrl && e.status === "Published"){const fallback=el("a", "Open album instead ↗");fallback.href=e.albumUrl;fallback.target="_blank";fallback.rel="noopener noreferrer";info.append(fallback);}
+    if(e.itemUrl && e.albumUrl && e.status === "Published"){const fallback=el("a", "Open album instead ↗");fallback.href=e.albumUrl;fallback.target="_blank";fallback.rel="noopener noreferrer";info.append(fallback);}
     grid.append(img, info);
     section.append(grid);
     if (!ui.demo) {
@@ -903,7 +908,7 @@ window.HomeFlex = (() => {
       el("h1", "Paste. Preview. Review."),
       el(
         "p",
-        "Paste one Google Photos album link per line. Up to 200 lines per batch.",
+        "Paste album links alone, or labelled episode lines with their exact Google Photos URL. Up to 200 lines per batch.",
       ),
       el(
         "code",
@@ -912,7 +917,7 @@ window.HomeFlex = (() => {
       ),
       el(
         "p",
-        "Accepted: HTTPS photos.app.goo.gl short links or photos.google.com album/share links. Format checks do not verify sharing or availability. Link-only cards become Draft with an Untitled album label and Needs details. Add the real title, series and code in the card later. Nothing is guessed.",
+        "Accepted: HTTPS photos.app.goo.gl short album links or photos.google.com album/share and /share/.../photo/... episode links. Optional fourth field: matching expanded album fallback URL. Item-only lines keep the exact episode URL; missing fallback is shown as a warning. Format checks do not verify sharing or availability. Link-only cards become Draft with an Untitled album label and Needs details. Add the real title, series and code in the card later. Nothing is guessed.",
         "small",
       ),
     );
@@ -963,7 +968,7 @@ window.HomeFlex = (() => {
         box.append(
           el(
             "p",
-            "Sequence warnings: " +
+            "Review warnings: " +
               p.warnings.join(", ") +
               ". No automatic fixes.",
           ),
