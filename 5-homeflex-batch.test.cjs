@@ -3,7 +3,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),cry
 const c={window:{addEventListener(){}},crypto,URL};vm.createContext(c);vm.runInContext(fs.readFileSync(__dirname+'/homeflex.js','utf8'),c);const H=c.window.HomeFlex;
 const item='https://photos.google.com/share/TEST_ALBUM/photo/TEST_EPISODE?key=TEST_KEY',album='https://photos.google.com/share/TEST_ALBUM?key=TEST_KEY';
 const line='Test | S01E01 - One | '+item;let n=0;function test(fn){fn();n++;}
-const p=H.batch(line,[]);test(()=>assert.equal(p.errors.length,0));test(()=>assert.equal(p.cards.length,1));test(()=>assert.equal(p.cards[0].itemUrl,item));test(()=>assert.equal(p.cards[0].albumUrl,null));test(()=>assert.equal(p.cards[0].status,'Draft'));test(()=>assert.match(p.warnings.join(' '),/fallback missing/));
+const p=H.batch(line,[]);test(()=>assert.equal(p.errors.length,0));test(()=>assert.equal(p.cards.length,1));test(()=>assert.equal(p.cards[0].itemUrl,item));test(()=>assert.equal(p.cards[0].albumUrl,null));test(()=>assert.equal(p.cards[0].status,'Published'));test(()=>assert.match(p.warnings.join(' '),/fallback missing/));
 test(()=>assert.equal(H.readBackup({format:'homeflex-fusion',version:1,exportedAt:new Date().toISOString(),episodes:p.cards})[0].albumUrl,null));
 test(()=>assert.equal(H.batch(line,p.cards).errors.length,1));test(()=>assert.equal(H.batch(line+'\n'+line,[]).errors.length,1));
 test(()=>assert.equal(H.batch(line+' | '+album,[]).cards[0].albumUrl,album));
@@ -16,3 +16,5 @@ for(const u of ['https://photos.google.com.evil.invalid/share/A/photo/B','https:
 test(()=>assert.throws(()=>H.validate([{...p.cards[0],albumUrl:null,itemUrl:undefined}])));test(()=>assert.throws(()=>H.validate([{...p.cards[0],albumUrl:'https://photos.google.com/share/OTHER'}])));
 test(()=>assert.equal(H.merge(p.cards,p.cards).skipped,1));
 console.log(n+' batch item-link assertions passed');
+const draft={...p.cards[0],status:'Draft'};const pending={...draft,id:crypto.randomUUID(),needsDetails:true};const missing={...draft,id:crypto.randomUUID(),itemUrl:undefined,albumUrl:null};const unavailable={...draft,id:crypto.randomUUID(),status:'Unavailable'};
+const bulk=H.bulkStatus([draft,pending,missing,unavailable],true);test(()=>assert.equal(bulk.count,2));test(()=>assert.equal(bulk.skipped,1));test(()=>assert.equal(draft.status,'Draft'));test(()=>assert.equal(bulk.cards[3].status,'Unavailable'));test(()=>assert.equal(H.bulkStatus(bulk.cards,false).count,2));test(()=>assert.equal(H.bulkStatus(bulk.cards,false).cards[0].status,'Draft'));test(()=>assert.equal(H.readBackup({format:'homeflex-fusion',version:1,exportedAt:new Date().toISOString(),episodes:[draft]})[0].status,'Published'));console.log('7 ready-on-add/bulk assertions passed');
