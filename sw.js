@@ -1,5 +1,5 @@
 'use strict';
-const CACHE='fusion-homeflex-test-shell-v1.5.1-clear-link-labels';
+const CACHE='fusion-homeflex-test-shell-v1.5.2-episode-links';
 const ASSETS=['./','./index.html','./style.css','./app.js','./homeflex.js','./capture.js','./homeflex.css','./homeflex-art.svg','./manifest.webmanifest','./14-icon-192.png','./15-icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS.map(url=>new Request(url,{cache:'reload'}))))));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('fusion-homeflex-test-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
