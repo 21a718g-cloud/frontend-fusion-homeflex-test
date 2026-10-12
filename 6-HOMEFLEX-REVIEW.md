@@ -1,13 +1,11 @@
+# HomeFlex test: ready on add
 
-## Test patch: labelled exact-episode Batch import
+New valid cards become Published locally when added. This enables Open in Google Photos, not in-app playback and not public sharing. The shell is a TEST BUILD.
 
-Batch accepts `Series | S01E01 - Title | https://photos.google.com/share/.../photo/...`.
-These store the supplied URL as `itemUrl` and `albumUrl: null`; no fallback is guessed.
-Optional fourth field accepts a matching expanded album/share fallback URL.
-Review warnings and episode details mark missing fallback. New cards are Draft;
-duplicate episode codes remain blocking. Existing backups with album fallbacks still work.
-If copied rich-text omitted a URL, Batch reports that no HTTPS URL was found.
-Copy the plain-text/code-block version with literal URLs.
-Run `node homeflex-batch.test.cjs` for the synthetic parser/backup regressions.
-The v1 backup format now accepts null albumUrl only for valid labelled item-only episodes;
-older app versions need the test-site update before restoring those backups.
+Batch paste keeps Preview and a single Add reviewed cards action, exact episode URLs and duplicate-code checks. Missing URLs are rejected. Album-only cards with missing titles can still open; their Needs details label remains.
+
+JSON restore promotes incoming Draft cards to Published; explicit Unavailable cards stay Unavailable. Merge still skips existing duplicates without changing their status. Use Publish all existing drafts to enable old cards, with a count confirmation. Unpublish all or per-card status can reverse it. Nothing is opened or sent by changing status.
+
+Extension capture and Android share intake add valid links as Published. Edit details also makes a valid card ready to open. Google controls access and playback. No media is fetched by HomeFlex.
+
+Run `node 5-homeflex-batch.test.cjs` for synthetic URL, duplicate, backup and status tests. Private links are never committed.
