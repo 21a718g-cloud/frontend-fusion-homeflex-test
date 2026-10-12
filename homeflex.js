@@ -115,7 +115,7 @@ window.HomeFlex = (() => {
         (e.needsDetails
           ? e.canonicalName !== "" ||
             e.series !== "" ||
-            e.status !== "Draft" ||
+            !["Draft", "Published", "Unavailable"].includes(e.status) ||
             typeof e.title !== "string" ||
             !/^Untitled album [1-9]\d*$/.test(e.title)
           : e.cardType === "Album/Collection" ? (typeof e.title !== "string" || !e.title.trim() || e.title.length > 120 || /[\u0000-\u001f\u007f]/.test(e.title) || (e.canonicalName !== "" && !name(e.canonicalName))) : !name(e.canonicalName)) ||
@@ -203,7 +203,7 @@ window.HomeFlex = (() => {
           originalLine: line,
           albumUrl: albumUrl(p[0]),
           synopsis: "",
-          status: "Draft",
+          status: "Published",
           createdAt: new Date().toISOString(),
           lastOpened: null,
         };
@@ -246,7 +246,7 @@ window.HomeFlex = (() => {
         albumUrl: album,
         ...(capturedItem ? {itemUrl: capturedItem} : {}),
         synopsis: "",
-        status: "Draft",
+        status: "Published",
         createdAt: new Date().toISOString(),
         lastOpened: null,
       };
@@ -272,7 +272,7 @@ window.HomeFlex = (() => {
       )
     )
       fail("Use a HomeFlex Fusion v1 JSON backup.");
-    return validate(raw.episodes);
+    return validate(raw.episodes).map(e => ({...e, status: e.status === "Draft" ? "Published" : e.status}));
   }
   function merge(current, incoming) {
     const additions = [];
@@ -517,7 +517,7 @@ window.HomeFlex = (() => {
       img,
       el(
         "span",
-        e.needsDetails ? "Draft · Needs details" : e.status,
+        e.needsDetails ? e.status + " · Needs details" : e.status,
         "hf-badge",
       ),
     );
@@ -540,7 +540,7 @@ window.HomeFlex = (() => {
   }
   function bulkStatus(items, publish) {
     const candidates = items.filter(e => e.status === (publish ? "Draft" : "Published"));
-    const eligible = candidates.filter(e => !e.needsDetails && (itemUrl(e.itemUrl) || albumUrl(e.albumUrl)));
+    const eligible = candidates.filter(e => (itemUrl(e.itemUrl) || albumUrl(e.albumUrl)));
     const ids = new Set(eligible.map(e => e.id));
     return {count: eligible.length, skipped: candidates.length - eligible.length,
       cards: items.map(e => ids.has(e.id) ? {...e, status: publish ? "Published" : "Draft"} : e)};
@@ -548,7 +548,7 @@ window.HomeFlex = (() => {
   function bulkStatusAction(publish) {
     const preview = bulkStatus(rows, publish), reviewedRevision = revision;
     showConfirmDialog(publish ? "Publish all drafts?" : "Unpublish all?",
-      `${preview.count} cards will become ${publish ? "Published" : "Draft"}. ${preview.skipped} skipped (Needs details or missing valid URL). This affects the whole library, not just the current filters. Nothing is sent or opened. ${publish ? "Undo with Unpublish all or per-card status." : "Existing Published cards will also become Draft."}`,
+      `${preview.count} cards will become ${publish ? "Published" : "Draft"}. ${preview.skipped} skipped (missing valid URL). This affects the whole library, not just the current filters. Nothing is sent or opened. ${publish ? "Undo with Unpublish all or per-card status." : "Existing Published cards will also become Draft."}`,
       async () => {
         if (reviewedRevision !== revision) {ui.error = "Library changed. Review the count again."; refresh(); return false;}
         if (await save(preview.cards)) {ui.message = `${preview.count} cards ${publish ? "published" : "unpublished"} locally. ${preview.skipped} skipped. Nothing sent or opened.`; refresh(); return true;}
@@ -588,7 +588,7 @@ window.HomeFlex = (() => {
     );
     if (!ui.demo && ui.page === "browse") {
       const drafts = bulkStatus(rows, true), published = bulkStatus(rows, false);
-      buttons.append(action("Publish all drafts", () => bulkStatusAction(true), "", !loaded || busy || !drafts.count),
+      buttons.append(action("Publish all existing drafts", () => bulkStatusAction(true), "", !loaded || busy || !drafts.count),
         action("Unpublish all", () => bulkStatusAction(false), "", !loaded || busy || !published.count));
     }
     words.append(buttons);
@@ -637,7 +637,7 @@ window.HomeFlex = (() => {
             "p",
             ui.page === "recent"
               ? "Opening an album records a link-open action here, not confirmed Google viewing."
-              : "Paste album links to create Draft cards, then add title, series and episode code later.",
+              : "Paste album links to create ready-to-open cards, then add title, series and episode code later.",
           ),
           action(
             "Batch import",
@@ -705,7 +705,7 @@ window.HomeFlex = (() => {
     info.append(
       el(
         "p",
-        e.needsDetails ? "Draft · Needs details" : e.series + " · " + e.status,
+        e.needsDetails ? e.status + " · Needs details" : e.series + " · " + e.status,
         "hf-eyebrow",
       ),
       el("h1", e.cardType === "Album/Collection" ? e.title : e.canonicalName || e.title),
@@ -719,13 +719,12 @@ window.HomeFlex = (() => {
         () => openAlbum(e),
         "primary",
         busy ||
-          e.needsDetails ||
           e.status !== "Published" ||
           (!navigator.onLine && !ui.demo),
       ),
       el(
         "p",
-        (e.itemUrl ? (e.albumUrl ? "Opens the captured episode in Google Photos. Album fallback available. " : "Opens the captured episode in Google Photos. Album fallback missing. ") : "Opens the album in Google Photos. ") + "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. Save details if needed, then set Card status to Published to enable the button. Google may require sign-in or sharing access.",
+        (e.itemUrl ? (e.albumUrl ? "Opens the captured episode in Google Photos. Album fallback available. " : "Opens the captured episode in Google Photos. Album fallback missing. ") : "Opens the album in Google Photos. ") + "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. New cards are ready to open; titles can be added later. Google may require sign-in or sharing access.",
         "small",
       ),
     );
@@ -744,7 +743,7 @@ window.HomeFlex = (() => {
                 "small",
               ),
             ]
-          : [
+          : []),
               choices(
                 "Card status",
                 [
@@ -758,7 +757,6 @@ window.HomeFlex = (() => {
                     rows.map((x) => (x.id === e.id ? { ...x, status: v } : x)),
                   ),
               ),
-            ]),
         el(
           "p",
           "Published enables this browser’s link button. It does not share the card or create administrator/viewer security.",
@@ -807,7 +805,7 @@ window.HomeFlex = (() => {
               series: seriesInput.value.trim(),
               canonicalName: cardType === "Album/Collection" && !codeInput.value.trim() ? "" : canonicalName,
               cardType,
-              status: "Draft",
+              status: "Published",
               synopsis: notes.value,
             };
             delete next.needsDetails;
@@ -819,7 +817,7 @@ window.HomeFlex = (() => {
         ),
         el(
           "p",
-          "Saving details returns this card to Draft. Album/Collection does not require episode numbering. Captures use only supplied titles and URLs, never fetch album data.",
+          "Saving details makes this local card ready to open. Album/Collection does not require episode numbering. Captures use only supplied titles and URLs, never fetch album data.",
           "small",
         ),
       );
@@ -915,7 +913,7 @@ window.HomeFlex = (() => {
         el(
           "span",
           e.needsDetails
-            ? "Draft · Needs details"
+            ? e.status + " · Needs details"
             : e.series + " · " + e.status,
         ),
       );
@@ -939,7 +937,7 @@ window.HomeFlex = (() => {
       ),
       el(
         "p",
-        "Accepted: HTTPS photos.app.goo.gl short album links or photos.google.com album/share and /share/.../photo/... episode links. Optional fourth field: matching expanded album fallback URL. Item-only lines keep the exact episode URL; missing fallback is shown as a warning. Format checks do not verify sharing or availability. Link-only cards become Draft with an Untitled album label and Needs details. Add the real title, series and code in the card later. Nothing is guessed.",
+        "Accepted: HTTPS photos.app.goo.gl short album links or photos.google.com album/share and /share/.../photo/... episode links. Optional fourth field: matching expanded album fallback URL. Item-only lines keep the exact episode URL; missing fallback is shown as a warning. Format checks do not verify sharing or availability. Link-only cards are ready to open with an Untitled album label and Needs details. Add the real title, series and code in the card later. Nothing is guessed.",
         "small",
       ),
     );
@@ -982,7 +980,7 @@ window.HomeFlex = (() => {
         ),
         el(
           "p",
-          "Only valid cards below can be applied, all as Draft. Rejected lines remain excluded.",
+          "Only valid cards below can be added, ready to open. Rejected lines remain excluded.",
         ),
       );
       for (const err of p.errors) box.append(el("p", err, "hf-error"));
@@ -998,7 +996,7 @@ window.HomeFlex = (() => {
       box.append(
         previewRows(p.cards),
         action(
-          "Apply reviewed valid cards as Draft",
+          "Add reviewed cards",
           async () => {
             if (p.revision !== revision) {
               ui.error = "Library changed. Generate a fresh preview.";
@@ -1183,7 +1181,7 @@ window.HomeFlex = (() => {
       ),
       el(
         "p",
-        "Fusion theme/window/search/launcher controls are reused. HomeFlex has no separate login or cloud sync. This build is DRAFT / REVIEW REQUIRED.",
+        "Fusion theme/window/search/launcher controls are reused. HomeFlex has no separate login or cloud sync. This build is TEST BUILD.",
       ),
       action(
         "Reload HomeFlex from local storage",
@@ -1209,7 +1207,7 @@ window.HomeFlex = (() => {
       bar = el("div", null, "hf-topbar");
     bar.append(
       el("strong", "HomeFlex"),
-      el("span", "DRAFT / REVIEW REQUIRED", "small"),
+      el("span", "TEST BUILD", "small"),
     );
     const nav = el("nav");
     nav.setAttribute("aria-label", "HomeFlex navigation");
@@ -1300,18 +1298,18 @@ window.HomeFlex = (() => {
         if(full && name(full[2])) lines.push(full[1]+" | "+full[2]+" | "+url);
         else if(filename && name(filename[2]+" - "+clean)) lines.push(filename[1]+" | "+filename[2]+" - "+clean+" | "+url);
       }
-      if(lines.length){ui.demo=false;ui.page="import";ui.selected=null;ui.text=[...new Set(lines)].join("\n");ui.preview={...batch(ui.text,rows),revision};if(capturedItem && ui.preview.cards.length===1)ui.preview.cards[0].itemUrl=capturedItem;ui.message="Visible episode labels only, possibly partial. Original labels kept as titles, no subtitles guessed. Review before applying Drafts.";refresh();return;}
+      if(lines.length){ui.demo=false;ui.page="import";ui.selected=null;ui.text=[...new Set(lines)].join("\n");ui.preview={...batch(ui.text,rows),revision};if(capturedItem && ui.preview.cards.length===1)ui.preview.cards[0].itemUrl=capturedItem;ui.message="Visible episode labels only, possibly partial. Original labels kept as titles, no subtitles guessed. Review, then Add to enable opening.";refresh();return;}
     }
     const existing=rows.find(x=>x.albumUrl===url && (x.needsDetails || x.cardType==="Album/Collection"));
     ui.demo=false; ui.page="browse";
     if(existing){ui.selected=existing.id;ui.message="Album already in this library. Existing card and status kept.";refresh();return;}
     const title=payload.title.replace(/ - Google Photos$/, "").trim();
     if(title.length>120 || /[\u0000-\u001f\u007f]/.test(title)) throw new Error("Captured title is too long or invalid. Nothing changed.");
-    const card={id:crypto.randomUUID(),series:"",canonicalName:"",originalLine:url,albumUrl:url,synopsis:"",status:"Draft",createdAt:new Date().toISOString(),lastOpened:null,
+    const card={id:crypto.randomUUID(),series:"",canonicalName:"",originalLine:url,albumUrl:url,synopsis:"",status:"Published",createdAt:new Date().toISOString(),lastOpened:null,
       ...(title ? {cardType:"Album/Collection",title} : {title:`Untitled album ${rows.filter(x=>x.needsDetails).length+1}`,needsDetails:true})};
     validate([...rows,card]);
     if(!await save([...rows,card])) throw new Error(ui.error || "Capture could not be saved.");
-    ui.selected=card.id;ui.message="Captured locally as Draft. No media downloaded or published.";refresh();
+    ui.selected=card.id;ui.message="Added locally, ready to open in Google Photos. No media downloaded or shared.";refresh();
   }
   window.addEventListener("homeflex-capture", e => receiveCapture(e.detail).catch(err=>{ui.error=err.message;refresh();}));
   window.addEventListener("online", refresh);
