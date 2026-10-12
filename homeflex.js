@@ -57,6 +57,8 @@ window.HomeFlex = (() => {
       return null;
     }
   }
+  function itemUrl(raw){try{const u=new URL(raw);return typeof raw==='string'&&raw.length<=2048&&u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&!u.hash&&u.hostname==='photos.google.com'&&/^\/(?:u\/\d+\/)?share\/[A-Za-z0-9_-]+\/photo\/[A-Za-z0-9_-]+\/?$/.test(u.pathname)?u.href:null;}catch{return null;}}
+  function itemParent(raw){const url=itemUrl(raw);if(!url)return null;const u=new URL(url);u.pathname=u.pathname.replace(/\/photo\/[^/]+\/?$/, '');return u.href;}
   function name(raw) {
     if (typeof raw !== "string" || /[\u0000-\u001f\u007f]/.test(raw))
       return null;
@@ -96,6 +98,7 @@ window.HomeFlex = (() => {
               "needsDetails",
               "title",
               "cardType",
+              "itemUrl",
             ].includes(k),
         )
       )
@@ -121,6 +124,7 @@ window.HomeFlex = (() => {
         typeof e.originalLine !== "string" ||
         e.originalLine.length > 2500 ||
         !albumUrl(e.albumUrl) ||
+        (e.itemUrl !== undefined && (!itemUrl(e.itemUrl) || new URL(itemParent(e.itemUrl)).pathname !== new URL(e.albumUrl).pathname)) ||
         typeof e.synopsis !== "string" ||
         e.synopsis.length > 500 ||
         !["Draft", "Published", "Unavailable"].includes(e.status) ||
@@ -482,7 +486,7 @@ window.HomeFlex = (() => {
     }
     if (!navigator.onLine || e.status !== "Published" || !albumUrl(e.albumUrl))
       return;
-    window.open(e.albumUrl, "_blank", "noopener,noreferrer");
+    window.open(itemUrl(e.itemUrl) || e.albumUrl, "_blank", "noopener,noreferrer");
     await save(
       rows.map((x) =>
         x.id === e.id ? { ...x, lastOpened: new Date().toISOString() } : x,
@@ -694,10 +698,11 @@ window.HomeFlex = (() => {
       ),
       el(
         "p",
-        "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. Save details if needed, then set Card status to Published to enable the button. Google may require sign-in or sharing access.",
+        (e.itemUrl ? "Opens the captured episode in Google Photos. Album link is available below. " : "Opens the album in Google Photos. ") + "Playback opens in Google Photos, not inside HomeFlex. This card is a local link. Save details if needed, then set Card status to Published to enable the button. Google may require sign-in or sharing access.",
         "small",
       ),
     );
+    if(e.itemUrl && e.status === "Published"){const fallback=el("a", "Open album instead ↗");fallback.href=e.albumUrl;fallback.target="_blank";fallback.rel="noopener noreferrer";info.append(fallback);}
     grid.append(img, info);
     section.append(grid);
     if (!ui.demo) {
@@ -1254,6 +1259,8 @@ window.HomeFlex = (() => {
     if(!loaded) throw new Error("Local storage unavailable. Nothing captured.");
     if(!payload || typeof payload.title !== "string" || typeof payload.url !== "string" || payload.title.length > 500) throw new Error("Invalid capture payload.");
     const url=albumUrl(payload.url);
+    const capturedItem=payload.itemUrl === undefined ? null : itemUrl(payload.itemUrl);
+    if(payload.itemUrl !== undefined && (!capturedItem || new URL(itemParent(capturedItem)).pathname !== new URL(url).pathname)) throw new Error("Invalid episode link or album mismatch.");
     if(!url) throw new Error("Capture needs a valid Google Photos album/share URL.");
     if(Array.isArray(payload.labels)){
       if(payload.labels.length>100)throw new Error("Capture has too many labels.");
@@ -1266,7 +1273,7 @@ window.HomeFlex = (() => {
         if(full && name(full[2])) lines.push(full[1]+" | "+full[2]+" | "+url);
         else if(filename && name(filename[2]+" - "+clean)) lines.push(filename[1]+" | "+filename[2]+" - "+clean+" | "+url);
       }
-      if(lines.length){ui.demo=false;ui.page="import";ui.selected=null;ui.text=[...new Set(lines)].join("\n");ui.preview={...batch(ui.text,rows),revision};ui.message="Visible episode labels only, possibly partial. Original labels kept as titles, no subtitles guessed. Review before applying Drafts.";refresh();return;}
+      if(lines.length){ui.demo=false;ui.page="import";ui.selected=null;ui.text=[...new Set(lines)].join("\n");ui.preview={...batch(ui.text,rows),revision};if(capturedItem && ui.preview.cards.length===1)ui.preview.cards[0].itemUrl=capturedItem;ui.message="Visible episode labels only, possibly partial. Original labels kept as titles, no subtitles guessed. Review before applying Drafts.";refresh();return;}
     }
     const existing=rows.find(x=>x.albumUrl===url && (x.needsDetails || x.cardType==="Album/Collection"));
     ui.demo=false; ui.page="browse";
@@ -1298,5 +1305,5 @@ window.HomeFlex = (() => {
       refresh();
     }
   });
-  return { render, albumUrl, name, validate, batch, gaps, readBackup, merge, receiveCapture };
+  return { render, albumUrl, name, validate, batch, gaps, readBackup, merge, receiveCapture, itemUrl };
 })();
